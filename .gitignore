@@ -9,3 +9,4 @@ data/raw/*
 models/*.pt
 outputs/*
 !outputs/.gitkeep
+*.pt
