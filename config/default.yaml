@@ -80,6 +80,12 @@ perception:
   detector: yolo                   # yolo | classical (yolo falls back to classical)
   model_path: models/best.pt
   yolo_imgsz: 640
+  yolo_conf: 0.25
+  yolo_iou: 0.6                   # NMS overlap; lower would suppress overlapping pieces
+  pose:
+    max_points: 6000              # mask pixels sampled for PCA and extents
+    fat_band_mm: [2.0, 9.0]       # edge band (distance in from each long edge) compared for fat
+    chroma_weight: 1.0            # paleness = L - chroma_weight * chroma
   classical:
     work_scale: 0.5               # detect at half resolution for speed
     color_threshold: 20.0         # Lab distance from the belt's own median colour

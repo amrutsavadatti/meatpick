@@ -51,9 +51,14 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("detections-debug", help="contact sheet of detections on a truth set")
     dd.add_argument("--set", default="outputs/dev_set", dest="truth_set")
     dd.add_argument("--out", default="outputs/debug/classical_detections.jpg")
+    pd = sub.add_parser("poses-debug", help="contact sheet of posed detections")
+    pd.add_argument("--set", default="outputs/demo_set", dest="truth_set")
+    pd.add_argument("--detector", default="yolo", choices=["classical", "yolo"])
+    pd.add_argument("--out", default="outputs/debug/poses.jpg")
     ev = sub.add_parser("eval-detector", help="run a detector over a saved truth set")
     ev.add_argument("--set", default="outputs/dev_set", dest="truth_set")
-    ev.add_argument("--detector", default="classical", choices=["classical"])
+    ev.add_argument("--detector", default="classical", choices=["classical", "yolo"])
+    ev.add_argument("--pose", action="store_true", help="also score pose accuracy")
     ev.add_argument("--out", default=None, help="write the report json here")
     return p
 
@@ -177,10 +182,38 @@ def main(argv: list[str] | None = None) -> int:
         cv2.imwrite(args.out, np.vstack(rows))
         print(f"wrote {args.out} ({len(good)} clean frames, {len(bad)} with errors sampled)")
         return 0
+    if args.command == "poses-debug":
+        import cv2
+
+        from meatpick.eval.matching import frame_stems, load_truth_frame
+        from meatpick.perception.calibration import Calibration
+        from meatpick.perception.factory import Perceiver
+        from meatpick.sim.calibration_target import render_calibration_set
+        from meatpick.sim.camera import Camera
+        from meatpick.sim.dataset_export import test_cfg
+        from meatpick.types import Frame
+        from meatpick.viz.overlay import draw_poses
+
+        ncfg = test_cfg(cfg)
+        cam = Camera(ncfg, rng)
+        tilted, flat, _ = render_calibration_set(cam, ncfg, rng)
+        cal = Calibration.calibrate(tilted, flat)
+        perceiver = Perceiver(cfg, cal, prefer=args.detector)
+        tiles = []
+        for stem in frame_stems(args.truth_set)[::7]:
+            tf = load_truth_frame(args.truth_set, stem)
+            dets = perceiver.perceive(Frame(tf.image, 0, 0))
+            if len(dets) >= 2 and len(tiles) < 6:
+                tiles.append(cv2.resize(draw_poses(tf.image, dets, cal, cfg), (640, 360)))
+        rows = [np.hstack(tiles[i : i + 2]) for i in range(0, len(tiles) - 1, 2)]
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(args.out, np.vstack(rows))
+        print(f"wrote {args.out} using {perceiver.description}")
+        return 0
     if args.command == "eval-detector":
         from meatpick.eval.detector_eval import evaluate_detector
         from meatpick.perception.calibration import Calibration
-        from meatpick.perception.classical import ClassicalDetector
+        from meatpick.perception.factory import Perceiver
         from meatpick.sim.calibration_target import render_calibration_set
         from meatpick.sim.camera import Camera
         from meatpick.sim.dataset_export import test_cfg
@@ -188,10 +221,15 @@ def main(argv: list[str] | None = None) -> int:
         ncfg = test_cfg(cfg)  # the truth sets use the nominal, non-randomized camera
         cam = Camera(ncfg, rng)
         tilted, flat, _ = render_calibration_set(cam, ncfg, rng)
-        ppm = Calibration.calibrate(tilted, flat).px_per_mm()  # scale comes from calibration
-        report = evaluate_detector(ClassicalDetector(cfg, ppm), args.truth_set)
-        out = {"set": args.truth_set, "detector": args.detector, "px_per_mm": round(ppm, 4),
-               **report.summary()}  # fmt: skip
+        cal = Calibration.calibrate(tilted, flat)  # scale and mapping come from calibration
+        perceiver = Perceiver(cfg, cal, prefer=args.detector)
+        report = evaluate_detector(perceiver.detector, args.truth_set)
+        out = {"set": args.truth_set, "detector": perceiver.description,
+               "px_per_mm": round(cal.px_per_mm(), 4), **report.summary()}  # fmt: skip
+        if args.pose:
+            from meatpick.eval.pose_eval import evaluate_pose
+
+            out["pose"] = evaluate_pose(perceiver, args.truth_set)
         print(json.dumps(out, indent=2))
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
