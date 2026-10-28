@@ -66,7 +66,7 @@ class Camera:
         self.trigger_counts = int(
             round(c["trigger_every_mm"] / cfg["belt"]["mm_per_encoder_count"])
         )
-        self._next_trigger = self.trigger_counts
+        self._next_trigger: int | None = None  # aligned to the 20 mm grid on the first call
         self._draw_parameters()
         self._build_belt_texture()
         self._build_lens_maps()
@@ -328,6 +328,8 @@ class Camera:
     def maybe_capture(self, world: World) -> tuple[Frame, FrameTruth] | None:
         """Capture when the encoder has passed the next trigger point (every N counts of travel)."""
         enc = world.belt.encoder
+        if self._next_trigger is None:
+            self._next_trigger = -(-enc // self.trigger_counts) * self.trigger_counts
         if enc < self._next_trigger:
             return None
         self._next_trigger = (enc // self.trigger_counts + 1) * self.trigger_counts

@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     cs.add_argument("--seconds", type=float, default=10.0)
     cs.add_argument("--out", default="outputs/debug/camera_sample.mp4")
     cs.add_argument("--procedural", action="store_true", help="ignore the dataset")
+    ds = sub.add_parser("dataset", help="export the YOLO training zip and the fixed test set")
+    ds.add_argument("--out", default="outputs")
+    ds.add_argument("--train", type=int, default=3400)
+    ds.add_argument("--val", type=int, default=600)
+    ds.add_argument("--test", type=int, default=500)
+    ds.add_argument("--workers", type=int, default=2)
     return p
 
 
@@ -81,6 +87,24 @@ def main(argv: list[str] | None = None) -> int:
 
         write_camera_clip(cfg, rng, args.out, args.seconds, use_dataset=not args.procedural)
         print(f"wrote {args.out} and its _truth overlay")
+        return 0
+    if args.command == "dataset":
+        from tqdm import tqdm
+
+        from meatpick.sim.dataset_export import export_dataset
+
+        bar = tqdm(total=args.train + args.val, unit="frame")
+        last = [0]
+
+        def progress(done: int, total: int) -> None:
+            bar.update(done - last[0])
+            last[0] = done
+
+        summary = export_dataset(
+            cfg, args.out, args.train, args.val, args.test, args.workers, cfg["seed"], progress
+        )
+        bar.close()
+        print(json.dumps(summary, indent=2))
         return 0
     parser.print_help()
     return 0

@@ -40,8 +40,8 @@ def test_frames_are_triggered_by_encoder_distance(clip):
     enc = [f.encoder for f, _ in fs]
     assert len(enc) > 50
     counts = int(cfg["camera"]["trigger_every_mm"] / cfg["belt"]["mm_per_encoder_count"])
-    # the first interval depends on when the camera started watching; later ones are exact
-    assert all(counts <= d <= counts + 45 for d in np.diff(enc)[1:])
+    assert all(counts <= d <= counts + 45 for d in np.diff(enc))  # incl. the first interval
+    assert enc[0] % counts < 45  # first frame sits on the trigger grid
 
 
 def test_frame_shape_and_type(clip):
