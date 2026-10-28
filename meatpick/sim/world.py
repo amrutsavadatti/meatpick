@@ -106,11 +106,18 @@ class World:
         base = generate_piece(self.cfg, self.bank, self.rng, self.ppm)
         theta = float(self.rng.uniform(0, 180))
         spr = rotate(base, geometry.belt_angle_to_image(theta))
+        # Outline from the 4x upsampled alpha so it sits on the true edge (pixel-center contours
+        # of the mask would lie half a pixel inside).
+        up = 4
+        alpha_up = cv2.resize(
+            spr.sprite[..., 3], None, fx=up, fy=up, interpolation=cv2.INTER_LINEAR
+        )
         contours, _ = cv2.findContours(
-            spr.mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            (alpha_up >= 128).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         cnt = max(contours, key=cv2.contourArea)
-        cnt = cv2.approxPolyDP(cnt, 1.0, True)[:, 0, :].astype(float)
+        cnt = cv2.approxPolyDP(cnt, 1.5, True)[:, 0, :].astype(float)
+        cnt = (cnt + 0.5) / up - 0.5  # upsampled pixel index -> original pixel coordinates
         du, dv = cnt[:, 0] - spr.cx_px, cnt[:, 1] - spr.cy_px
         rel = np.stack([dv / self.ppm, -du / self.ppm], axis=1)  # (dx_belt, dy_belt)
         piece = WorldPiece(
@@ -196,3 +203,29 @@ class World:
                 )
             )
         return out
+
+
+def touching_flags(truths: list[PieceTruth], clearance_mm: float) -> dict[int, bool]:
+    """A piece is touching if another piece's outline comes within ``clearance_mm`` of it."""
+    from scipy.spatial import cKDTree
+
+    def dense(poly: np.ndarray) -> np.ndarray:
+        nxt = np.roll(poly, -1, axis=0)
+        n = np.maximum(1, np.ceil(np.linalg.norm(nxt - poly, axis=1) / 3.0).astype(int))
+        return np.vstack(
+            [
+                p + (q - p) * (np.arange(k)[:, None] / k)
+                for p, q, k in zip(poly, nxt, n, strict=True)
+            ]
+        )
+
+    pts = [dense(t.polygon_mm) for t in truths]
+    trees = [cKDTree(p) for p in pts]
+    flags = {t.id: False for t in truths}
+    for i, ti in enumerate(truths):
+        for j in range(i + 1, len(truths)):
+            if abs(ti.x_mm - truths[j].x_mm) > 400:
+                continue
+            if trees[i].query(pts[j], k=1)[0].min() <= clearance_mm:
+                flags[ti.id] = flags[truths[j].id] = True
+    return flags

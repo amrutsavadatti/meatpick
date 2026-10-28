@@ -40,6 +40,19 @@ camera:
   fov_mm: [600, 340]            # [across belt, along travel]; image rows run along travel
   trigger_every_mm: 20          # frame triggered by encoder distance
   exposure_s: 0.002
+  randomize: true               # draw effect strengths per camera from the seed, around these values
+  f_px: 1500                    # nominal focal length for the lens model
+  tilt_deg: [1.5, -1.0]         # camera pitch, yaw relative to the belt normal
+  dist_k: [-0.08, 0.01]         # radial distortion k1, k2 (OpenCV model, normalized by f)
+  canvas_margin_px: 100         # extra scene rendered around the frame so warps never show gaps
+  vignette: 0.35
+  light_gradient: 0.15
+  glare_lobes: 2
+  glare_strength: 0.9
+  noise_sigma: 3.0
+  exposure_drift: 0.06
+  wb_drift: 0.03
+  min_visible_px: 40            # a piece with fewer visible pixels is not in the frame truth
   effects:
     perspective: true
     lens_distortion: true

@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("pieces", help="write a grid of 50 random pieces")
     pc.add_argument("--out", default="outputs/debug/pieces.png")
     pc.add_argument("--procedural", action="store_true", help="ignore the dataset")
+    cs = sub.add_parser("camera-sample", help="render a short camera clip, with and without truth")
+    cs.add_argument("--seconds", type=float, default=10.0)
+    cs.add_argument("--out", default="outputs/debug/camera_sample.mp4")
+    cs.add_argument("--procedural", action="store_true", help="ignore the dataset")
     return p
 
 
@@ -71,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(args.out, piece_grid(pieces))
         print(f"wrote {args.out}")
+        return 0
+    if args.command == "camera-sample":
+        from meatpick.sim.debug import write_camera_clip
+
+        write_camera_clip(cfg, rng, args.out, args.seconds, use_dataset=not args.procedural)
+        print(f"wrote {args.out} and its _truth overlay")
         return 0
     parser.print_help()
     return 0

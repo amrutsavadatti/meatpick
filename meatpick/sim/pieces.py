@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from meatpick.sim.textures import TextureBank
+from meatpick.sim.textures import TextureBank, _value_noise
 
 ALPHA_THRESHOLD = 128  # mask = alpha >= this, so mask and sprite alpha agree exactly
 
@@ -24,6 +24,7 @@ class Piece:
     sprite: np.ndarray  # HxWx4 uint8, BGRA, straight (non-premultiplied) alpha
     mask: np.ndarray  # HxW bool, == (sprite alpha >= ALPHA_THRESHOLD)
     fat_mask: np.ndarray  # HxW bool, the fat strip inside the mask
+    gloss: np.ndarray  # HxW float32 in [0,1], where wet meat can catch a specular highlight
     cx_px: float  # true center, sprite pixel coordinates
     cy_px: float
     angle_deg: float  # long axis direction in [0, 180)
@@ -103,10 +104,13 @@ def generate_piece(
         [np.clip(rgb, 0, 255).astype(np.uint8), (alpha * 255 + 0.5).astype(np.uint8)]
     )
     mask = sprite[..., 3] >= ALPHA_THRESHOLD
+    wet = _value_noise((h, w), rng, octaves=4, base_cells=12)
+    gloss = np.clip((wet - 0.6) / 0.12, 0.0, 1.0) * (1.0 - 0.7 * fat_amount)
     return Piece(
         sprite=sprite,
         mask=mask,
         fat_mask=mask & (fat_amount >= 0.5),
+        gloss=gloss.astype(np.float32),
         cx_px=(w - 1) / 2,
         cy_px=(h - 1) / 2,
         angle_deg=0.0,
@@ -163,6 +167,7 @@ def rotate(piece: Piece, angle_deg: float) -> Piece:
     bgr = np.where(a2 > 1e-4, warped[..., :3] / np.maximum(a2, 1e-4), 0)
     sprite = np.dstack([np.clip(bgr, 0, 255), a2 * 255]).round().astype(np.uint8)
     fat = cv2.warpAffine(piece.fat_mask.astype(np.float32), m, (nw, nh), flags=cv2.INTER_LINEAR)
+    gloss = cv2.warpAffine(piece.gloss, m, (nw, nh), flags=cv2.INTER_LINEAR)
     mask = sprite[..., 3] >= ALPHA_THRESHOLD
     total = piece.angle_deg + angle_deg
     flips = int(np.floor(total / 180.0))  # each half turn swaps which side the normal points to
@@ -170,6 +175,7 @@ def rotate(piece: Piece, angle_deg: float) -> Piece:
         sprite=sprite,
         mask=mask,
         fat_mask=mask & (fat >= 0.5),
+        gloss=gloss,
         cx_px=ncx,
         cy_px=ncy,
         angle_deg=float(total % 180.0),
