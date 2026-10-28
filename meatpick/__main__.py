@@ -27,6 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     tex = sub.add_parser("textures", help="write a 48-sample texture contact sheet")
     tex.add_argument("--out", default="outputs/debug/textures.png")
     tex.add_argument("--procedural", action="store_true", help="ignore the dataset")
+    pc = sub.add_parser("pieces", help="write a grid of 50 random pieces")
+    pc.add_argument("--out", default="outputs/debug/pieces.png")
+    pc.add_argument("--procedural", action="store_true", help="ignore the dataset")
     return p
 
 
@@ -52,6 +55,22 @@ def main(argv: list[str] | None = None) -> int:
         cv2.imwrite(args.out, contact_sheet(bank, rng))
         n = {k: len(v) for k, v in bank.patches.items()}
         print(f"wrote {args.out}: {n['lean']} lean / {n['fat']} fat patches")
+        return 0
+    if args.command == "pieces":
+        import cv2
+
+        from meatpick.sim.pieces import generate_piece, piece_grid, rotate
+        from meatpick.sim.textures import TextureBank
+
+        bank = TextureBank(cfg, rng, use_dataset=not args.procedural)
+        ppm = cfg["camera"]["width_px"] / cfg["camera"]["fov_mm"][0]
+        pieces = [
+            rotate(generate_piece(cfg, bank, rng, ppm), float(rng.uniform(0, 180)))
+            for _ in range(50)
+        ]
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(args.out, piece_grid(pieces))
+        print(f"wrote {args.out}")
         return 0
     parser.print_help()
     return 0

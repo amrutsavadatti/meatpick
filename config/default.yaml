@@ -9,6 +9,8 @@ product:
   weight_g: [200, 400]
   fat_strip_width_mm: [5, 20]   # along one long edge, random side
   density_g_per_mm3: 0.00105    # ~1.05 g/cm^3, used for weight estimate
+  lean_hue_shift: 8             # OpenCV hue units; moves dataset magenta toward pork pink
+  paleness_range: [-0.05, 0.4]  # per-piece tint: negative pinker, positive paler
 
 belt:
   width_mm: 600
