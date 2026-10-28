@@ -1,0 +1,71 @@
+# Every number from the PRD assumptions table lives here. Units are in the key names.
+
+seed: 0
+
+product:
+  length_mm: [100, 180]
+  width_mm: [60, 110]
+  thickness_mm: [15, 30]
+  weight_g: [200, 400]
+  fat_strip_width_mm: [5, 20]   # along one long edge, random side
+  density_g_per_mm3: 0.00105    # ~1.05 g/cm^3, used for weight estimate
+
+belt:
+  width_mm: 600
+  speed_nominal_mps: 0.25
+  speed_min_mps: 0.0
+  speed_max_mps: 0.4
+  accel_max_mps2: 0.5           # limit so pieces don't slide
+  mm_per_encoder_count: 0.1
+  color_bgr: [140, 90, 30]      # blue food-grade belt
+
+arrivals:
+  rate_per_min: 50
+  bursty: true
+  burst_prob: 0.15              # chance an arrival event is a cluster
+  burst_size: [2, 4]
+  burst_spacing_mm: [0, 40]     # 0 -> pieces touch or overlap
+
+world:
+  dt_s: 0.01
+
+camera:
+  width_px: 1280
+  height_px: 720
+  fov_mm: [600, 340]            # along belt x across belt (width of belt seen)
+  trigger_every_mm: 20          # frame triggered by encoder distance
+  exposure_s: 0.002
+  effects:
+    perspective: true
+    lens_distortion: true
+    vignetting: true
+    glare: true
+    sensor_noise: true
+    motion_blur: true
+    exposure_drift: true
+
+robot:
+  vmax_mps: 2.0
+  amax_mps2: 10.0
+  grip_s: 0.15
+  release_s: 0.10
+  wrist_rotation_penalty_s: 0.05   # applied above wrist_rotation_threshold_deg
+  wrist_rotation_threshold_deg: 90
+  reach_zone_x_mm: [600, 1000]     # belt-x range the arm can reach
+  bin_distance_mm: 400             # bin within this of the pick zone
+  gripper_yaw_offset_deg: 90       # fingers close across short axis
+  touching_clearance_mm: 25
+  dual_pick: false
+  dual_pick_radius_mm: 80
+
+perception:
+  detector: yolo                   # yolo | classical (yolo falls back to classical)
+  model_path: models/best.pt
+  yolo_imgsz: 640
+  track_gate_mm: 30
+  track_confirm_hits: 2
+
+control:
+  adaptive_belt: true
+  pi_kp: 0.5
+  pi_ki: 0.1
