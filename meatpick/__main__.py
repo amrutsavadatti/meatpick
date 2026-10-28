@@ -40,6 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--val", type=int, default=600)
     ds.add_argument("--test", type=int, default=500)
     ds.add_argument("--workers", type=int, default=2)
+    cb = sub.add_parser("calibrate", help="render calibration boards, calibrate, save the result")
+    cb.add_argument("--out", default="outputs/calibration.json")
+    cb.add_argument("--debug", default="outputs/debug/calibration.png")
     return p
 
 
@@ -105,6 +108,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         bar.close()
         print(json.dumps(summary, indent=2))
+        return 0
+    if args.command == "calibrate":
+        import cv2
+
+        from meatpick.perception.calibration import Calibration
+        from meatpick.sim.calibration_target import render_calibration_set
+        from meatpick.sim.camera import Camera
+        from meatpick.sim.debug import calibration_report
+
+        cam = Camera(cfg, rng)
+        tilted, flat, held = render_calibration_set(cam, cfg, rng)
+        cal = Calibration.calibrate(tilted, flat)
+        cal.save(args.out)
+        sheet, summary = calibration_report(cam, cal, tilted, flat, held)
+        Path(args.debug).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(args.debug, sheet)
+        print(json.dumps(summary, indent=2))
+        print(f"wrote {args.out} and {args.debug}")
         return 0
     parser.print_help()
     return 0

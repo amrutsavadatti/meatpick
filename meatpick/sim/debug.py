@@ -71,3 +71,55 @@ def write_camera_clip(
     truth_w.release()
     if still is not None:
         cv2.imwrite(str(path.with_name(path.stem + "_truth.png")), still)
+
+
+def calibration_report(cam, cal, tilted, flat, held) -> tuple[np.ndarray, dict]:
+    """Contact sheet of calibration views with detected corners, plus summary numbers."""
+    from meatpick.perception.calibration import PATTERN, find_corners, flat_board_corners_belt_mm
+
+    errs = []
+    for img, origin in held:
+        c = find_corners(img)
+        x, y = cal.px_to_belt_mm(c[:, 0], c[:, 1])
+        t = flat_board_corners_belt_mm(origin)
+        errs.append(np.hypot(x - t[:, 0], y - t[:, 1]))
+    err = np.concatenate(errs)
+    summary = {
+        "rms_px": round(cal.rms_px, 3),
+        "held_out_mm_mean": round(float(err.mean()), 3),
+        "held_out_mm_max": round(float(err.max()), 3),
+        "f_px_est": round(float(cal.K[0, 0]), 1),
+        "f_px_true": round(float(cam.f_px), 1),
+        "k1_est": round(float(cal.dist[0]), 4),
+        "k1_true": round(float(cam.dist[0]), 4),
+        "n_views": cal.n_views,
+    }
+    tiles = []
+    for img in (tilted[0], tilted[len(tilted) // 2], held[0][0]):
+        vis = img.copy()
+        c = find_corners(vis)
+        cv2.drawChessboardCorners(vis, PATTERN, c.astype(np.float32).reshape(-1, 1, 2), True)
+        tiles.append(cv2.resize(vis, (640, 360)))
+    text = [
+        f"reprojection RMS {summary['rms_px']} px (target < 1)",
+        "held-out boards: mean {} mm, max {} mm (target < 1)".format(
+            summary["held_out_mm_mean"], summary["held_out_mm_max"]
+        ),
+        "focal {} est vs {} true | k1 {} vs {}".format(
+            summary["f_px_est"], summary["f_px_true"], summary["k1_est"], summary["k1_true"]
+        ),
+    ]
+    info = np.full((360, 640, 3), 30, np.uint8)
+    for i, line in enumerate(text):
+        cv2.putText(
+            info,
+            line,
+            (12, 60 + 70 * i),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    sheet = np.vstack([np.hstack(tiles[:2]), np.hstack([tiles[2], info])])
+    return sheet, summary

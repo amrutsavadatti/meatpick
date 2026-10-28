@@ -111,11 +111,15 @@ class Camera:
         )
         ry = np.array([[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]])
         self.K = K
-        self.H_tilt = K @ ry @ rx @ np.linalg.inv(K)  # ideal frame px -> pre-distortion px
+        self.R_tilt = ry @ rx  # camera rotation; the lens model is a pinhole camera that is tilted
+        self.H_tilt = K @ self.R_tilt @ np.linalg.inv(K)  # ideal frame px -> pre-distortion px
         self.dist_coeffs = np.array([self.dist[0], self.dist[1], 0.0, 0.0, 0.0])
         gy, gx = np.mgrid[0 : self.H, 0 : self.W].astype(np.float32)
         out_pts = np.stack([gx.ravel(), gy.ravel()], axis=1).reshape(-1, 1, 2)
         pre = cv2.undistortPoints(out_pts, K, self.dist_coeffs, P=K).reshape(-1, 2)
+        self.pre_grid = pre.reshape(self.H, self.W, 2).astype(
+            np.float64
+        )  # output px -> pre-dist px
         ideal = cv2.perspectiveTransform(
             pre.reshape(-1, 1, 2).astype(np.float64), np.linalg.inv(self.H_tilt)
         )
@@ -127,6 +131,18 @@ class Camera:
         pts = np.asarray(ideal_px, np.float64).reshape(-1, 1, 2)
         tilted = cv2.perspectiveTransform(pts, self.H_tilt).reshape(-1, 2)
         norm = (tilted - [self.W / 2, self.H / 2]) / self.f_px
+        r2 = (norm**2).sum(1, keepdims=True)
+        k1, k2 = self.dist
+        return norm * (1 + k1 * r2 + k2 * r2**2) * self.f_px + [self.W / 2, self.H / 2]
+
+    def project_points_3d(self, points_mm: np.ndarray) -> np.ndarray:
+        """3D points in the straight-down camera frame (mm, +Z toward the belt) -> image pixels.
+
+        The straight-down frame is the camera before its tilt; the belt plane sits at Z = f / ppm.
+        Used to place calibration boards that are tilted off the belt plane.
+        """
+        pc = (self.R_tilt @ np.asarray(points_mm, np.float64).T).T
+        norm = pc[:, :2] / pc[:, 2:3]
         r2 = (norm**2).sum(1, keepdims=True)
         k1, k2 = self.dist
         return norm * (1 + k1 * r2 + k2 * r2**2) * self.f_px + [self.W / 2, self.H / 2]
@@ -257,7 +273,9 @@ class Camera:
         k /= k.sum()
         return cv2.filter2D(canvas, -1, k.reshape(-1, 1), borderType=cv2.BORDER_REPLICATE)
 
-    def render(self, world: World) -> tuple[Frame, FrameTruth]:
+    def render(self, world: World, final_overlay=None) -> tuple[Frame, FrameTruth]:
+        """Render one frame. ``final_overlay(img)`` may paint into the warped float image before
+        lighting and noise (used for calibration boards)."""
         canvas = self._background(world.belt.travel_mm)
         inst_canvas, full_px = self._composite(canvas, world)
         canvas = self._motion_blur(canvas, world.belt.speed_mps)
@@ -266,6 +284,8 @@ class Camera:
         )
         inst = cv2.remap(inst_canvas, self.map_x, self.map_y, cv2.INTER_NEAREST, borderValue=-1)
         inst = inst.astype(np.int32)
+        if final_overlay is not None:
+            img = final_overlay(img)
 
         c = self.cfg["camera"]
         img *= self.light_field[..., None]
