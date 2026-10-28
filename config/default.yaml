@@ -80,6 +80,21 @@ perception:
   detector: yolo                   # yolo | classical (yolo falls back to classical)
   model_path: models/best.pt
   yolo_imgsz: 640
+  classical:
+    work_scale: 0.5               # detect at half resolution for speed
+    color_threshold: 20.0         # Lab distance from the belt's own median colour
+    lightness_weight: 0.25        # L counts a little: rescues pale, low-chroma meat
+    open_px: 3
+    close_px: 7
+    min_area_mm2: 500             # smaller blobs are noise
+    min_piece_mm2: 1500           # a watershed part smaller than this means a spurious split
+    split_solidity: 0.93          # only blobs less convex than this go through watershed
+    split_method: color           # color (watershed on the image) | nearest (nearest core)
+    marker_fraction: 0.65         # watershed seeds: distance > this x the blob's max
+    valley_px: 7                  # blackhat kernel for the dark edge between overlapping pieces
+    valley_threshold: 12          # blackhat response (grey levels) that counts as a valley
+    solidity_zero: 0.80           # confidence shape score: 0 at this solidity ...
+    solidity_one: 0.95            # ... and 1 at this one
   track_gate_mm: 30
   track_confirm_hits: 2
 

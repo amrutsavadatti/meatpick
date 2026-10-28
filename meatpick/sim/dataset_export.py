@@ -30,6 +30,7 @@ FRAME_STRIDE = 7  # keep every 7th triggered frame (~140 mm of travel) inside a 
 MIN_LABEL_PX = 120  # visible slivers smaller than this are left unlabeled
 IMG_SIZE_TRAIN = (640, 360)  # width, height written to the zip; ultralytics trains at 640 anyway
 TEST_SEED_BASE = 10_000  # disjoint from training scene seeds
+DEV_SEED_BASE = 5_000  # development set: for tuning detectors, never the test set
 
 
 def randomize_cfg(base: dict, rng: np.random.Generator) -> dict:
@@ -144,11 +145,14 @@ def export_train_scene(args: tuple) -> int:
 
 
 def export_test_sequence(args: tuple) -> list[dict]:
-    base_cfg, seq, n_frames, out_dir = args
+    base_cfg, seq, n_frames, out_dir, *rest = args
+    seed_base = rest[0] if rest else TEST_SEED_BASE
     cfg = test_cfg(base_cfg)
+    if len(rest) > 1 and rest[1]:
+        cfg["arrivals"].update(rest[1])  # e.g. the PRD's nominal 50/min instead of the dense 70/min
     out = Path(out_dir)
     index = []
-    for k, (frame, truth) in enumerate(_scene_frames(cfg, TEST_SEED_BASE + seq, n_frames, 1, True)):
+    for k, (frame, truth) in enumerate(_scene_frames(cfg, seed_base + seq, n_frames, 1, True)):
         stem = f"q{seq:02d}_f{k:03d}"
         _write_jpeg(out / "images" / f"{stem}.jpg", frame.image, 97)
         cv2.imwrite(str(out / "inst" / f"{stem}.png"), (truth.instance_map + 1).astype(np.uint16))
@@ -256,3 +260,24 @@ def _trim_test(test: Path, keep: int) -> None:
     index = json.loads((test / "index.json").read_text())
     kept = {f.stem for f in test.joinpath("images").glob("*.jpg")}
     (test / "index.json").write_text(json.dumps([r for r in index if r["frame"] in kept]))
+
+
+def export_dev_set(
+    cfg: dict,
+    out_dir: str | Path = "outputs/dev_set",
+    n_seq: int = 8,
+    n_frames: int = 25,
+    seed_base: int = DEV_SEED_BASE,
+    arrivals: dict | None = None,
+):
+    """Same format as the test set, different seeds. Tune detectors and trackers on this."""
+    out = Path(out_dir)
+    if out.exists():
+        shutil.rmtree(out)
+    for sub in ("images", "inst", "truth"):
+        (out / sub).mkdir(parents=True)
+    jobs = [(cfg, s, n_frames, out, seed_base, arrivals) for s in range(n_seq)]
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        index = [i for seq in pool.map(export_test_sequence, jobs) for i in seq]
+    (out / "index.json").write_text(json.dumps(index))
+    return len(index)

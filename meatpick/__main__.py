@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from meatpick.config import load_config, make_rng
 
 
@@ -43,6 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
     cb = sub.add_parser("calibrate", help="render calibration boards, calibrate, save the result")
     cb.add_argument("--out", default="outputs/calibration.json")
     cb.add_argument("--debug", default="outputs/debug/calibration.png")
+    dv = sub.add_parser("devset", help="export a development set for tuning (not the test set)")
+    dv.add_argument("--out", default="outputs/dev_set")
+    dv.add_argument("--nominal", action="store_true", help="the PRD's 50/min line, other seeds")
+    dd = sub.add_parser("detections-debug", help="contact sheet of detections on a truth set")
+    dd.add_argument("--set", default="outputs/dev_set", dest="truth_set")
+    dd.add_argument("--out", default="outputs/debug/classical_detections.jpg")
+    ev = sub.add_parser("eval-detector", help="run a detector over a saved truth set")
+    ev.add_argument("--set", default="outputs/dev_set", dest="truth_set")
+    ev.add_argument("--detector", default="classical", choices=["classical"])
+    ev.add_argument("--out", default=None, help="write the report json here")
     return p
 
 
@@ -126,6 +138,64 @@ def main(argv: list[str] | None = None) -> int:
         cv2.imwrite(args.debug, sheet)
         print(json.dumps(summary, indent=2))
         print(f"wrote {args.out} and {args.debug}")
+        return 0
+    if args.command == "devset":
+        from meatpick.sim.dataset_export import export_dev_set
+
+        if args.nominal:
+            from meatpick.sim.dataset_export import DEV_SEED_BASE
+
+            n = export_dev_set(
+                cfg, args.out, seed_base=DEV_SEED_BASE + 100,
+                arrivals={"rate_per_min": 50, "burst_prob": 0.1},
+            )  # fmt: skip
+        else:
+            n = export_dev_set(cfg, args.out)
+        print(f"wrote {n} frames to {args.out}")
+        return 0
+    if args.command == "detections-debug":
+        import cv2
+
+        from meatpick.eval.matching import frame_stems, load_truth_frame, match_masks
+        from meatpick.perception.classical import ClassicalDetector
+        from meatpick.types import Frame
+        from meatpick.viz.overlay import draw_detections
+
+        det = ClassicalDetector(cfg, cfg["camera"]["width_px"] / cfg["camera"]["fov_mm"][0])
+        good, bad = [], []
+        for stem in frame_stems(args.truth_set)[::3]:
+            tf = load_truth_frame(args.truth_set, stem)
+            dets = det.detect(Frame(tf.image, 0, 0))
+            res = match_masks([d.mask for d in dets], tf.instance_map, tf.record["pieces"])
+            tile = draw_detections(tf.image, dets, [p["polygon_px"] for p in tf.record["pieces"]])
+            cv2.putText(tile, f"{stem}  tp {res.tp} fn {res.fn} fp {res.fp}", (12, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)  # fmt: skip
+            (bad if res.fn or res.fp else good).append(cv2.resize(tile, (640, 360)))
+        tiles = (good[:3] + bad[:3] + good[3:6] + bad[3:6])[:6]
+        rows = [np.hstack(tiles[i : i + 2]) for i in range(0, len(tiles) - 1, 2)]
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(args.out, np.vstack(rows))
+        print(f"wrote {args.out} ({len(good)} clean frames, {len(bad)} with errors sampled)")
+        return 0
+    if args.command == "eval-detector":
+        from meatpick.eval.detector_eval import evaluate_detector
+        from meatpick.perception.calibration import Calibration
+        from meatpick.perception.classical import ClassicalDetector
+        from meatpick.sim.calibration_target import render_calibration_set
+        from meatpick.sim.camera import Camera
+        from meatpick.sim.dataset_export import test_cfg
+
+        ncfg = test_cfg(cfg)  # the truth sets use the nominal, non-randomized camera
+        cam = Camera(ncfg, rng)
+        tilted, flat, _ = render_calibration_set(cam, ncfg, rng)
+        ppm = Calibration.calibrate(tilted, flat).px_per_mm()  # scale comes from calibration
+        report = evaluate_detector(ClassicalDetector(cfg, ppm), args.truth_set)
+        out = {"set": args.truth_set, "detector": args.detector, "px_per_mm": round(ppm, 4),
+               **report.summary()}  # fmt: skip
+        print(json.dumps(out, indent=2))
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(out, indent=2))
         return 0
     parser.print_help()
     return 0

@@ -151,6 +151,15 @@ class Calibration:
         u, v = px[:, 0].reshape(x.shape), px[:, 1].reshape(x.shape)
         return (float(u), float(v)) if u.ndim == 0 else (u, v)
 
+    def px_per_mm(self, u: float | None = None, v: float | None = None) -> float:
+        """Local image scale (pixels per belt mm) at a pixel, default the image centre."""
+        u = self.image_size[0] / 2 if u is None else u
+        v = self.image_size[1] / 2 if v is None else v
+        x, y = self.px_to_belt_mm(u, v)
+        u1, v1 = self.belt_mm_to_px(x + 1.0, y)
+        u2, v2 = self.belt_mm_to_px(x, y + 1.0)
+        return float(np.sqrt(np.hypot(u1 - u, v1 - v) * np.hypot(u2 - u, v2 - v)))
+
     # --- persistence ----------------------------------------------------------------------
     def to_json(self) -> dict:
         return {
