@@ -69,3 +69,16 @@ control:
   adaptive_belt: true
   pi_kp: 0.5
   pi_ki: 0.1
+
+textures:
+  dataset_dir: data/raw/meat_detaction
+  split: train                     # valid/test stay untouched for the sim-to-real test
+  classes: [1]                     # dataset class ids to use: 0 Beef, 1 Pork
+  patch_px: 128
+  patches_per_image: 4
+  min_sharpness: 30.0              # Laplacian variance; below this the crop is blurry
+  min_brightness: 60               # mean V (0-255); below this the crop is dark
+  border_black_v: 45               # V below this counts as rotation-border background
+  fat_min_brightness: 190          # fat = bright and pale
+  fat_max_saturation: 70
+  min_patches_per_kind: 8          # fewer than this -> fall back to procedural for that kind

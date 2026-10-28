@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from meatpick.config import load_config, make_rng
 
@@ -23,6 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command")
     sub.add_parser("show-config", help="print the resolved config as JSON")
+    tex = sub.add_parser("textures", help="write a 48-sample texture contact sheet")
+    tex.add_argument("--out", default="outputs/debug/textures.png")
+    tex.add_argument("--procedural", action="store_true", help="ignore the dataset")
     return p
 
 
@@ -32,11 +36,22 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config, args.overrides)
     if args.seed is not None:
         cfg["seed"] = args.seed
-    make_rng(cfg["seed"])  # fail fast on a bad seed
+    rng = make_rng(cfg["seed"])
 
     if args.command == "show-config":
         json.dump(cfg, sys.stdout, indent=2)
         print()
+        return 0
+    if args.command == "textures":
+        import cv2
+
+        from meatpick.sim.textures import TextureBank, contact_sheet
+
+        bank = TextureBank(cfg, rng, use_dataset=not args.procedural)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(args.out, contact_sheet(bank, rng))
+        n = {k: len(v) for k, v in bank.patches.items()}
+        print(f"wrote {args.out}: {n['lean']} lean / {n['fat']} fat patches")
         return 0
     parser.print_help()
     return 0
