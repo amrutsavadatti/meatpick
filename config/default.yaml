@@ -24,17 +24,20 @@ belt:
 arrivals:
   rate_per_min: 50
   bursty: true
-  burst_prob: 0.15              # chance an arrival event is a cluster
-  burst_size: [2, 4]
-  burst_spacing_mm: [0, 40]     # 0 -> pieces touch or overlap
+  burst_prob: 0.1               # chance an arrival event is a cluster
+  burst_size: [2, 3]
+  burst_spacing_mm: [-15, 30]   # gap between neighbours along travel; <= 0 touches or overlaps
 
 world:
   dt_s: 0.01
+  spawn_x_mm: -200              # belt x where pieces land, upstream of the camera
+  end_x_mm: 1200                # pieces are removed (recirculation lane) past this x
+  y_margin_mm: 50               # keep piece centers this far from the belt edges
 
 camera:
   width_px: 1280
   height_px: 720
-  fov_mm: [600, 340]            # along belt x across belt (width of belt seen)
+  fov_mm: [600, 340]            # [across belt, along travel]; image rows run along travel
   trigger_every_mm: 20          # frame triggered by encoder distance
   exposure_s: 0.002
   effects:

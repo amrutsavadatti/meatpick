@@ -3,7 +3,8 @@
 Sprite frame: image x to the right, y down. The long axis is the vector
 ``(cos a, sin a)`` and its normal is ``(-sin a, cos a)``. A freshly generated piece has
 ``angle_deg == 0``; ``rotate`` turns it. ``fat_side`` is +1 when the fat strip lies on the +normal
-side of the long axis, -1 on the other side. Rotating a sprite never changes ``fat_side``.
+side of the long axis, -1 on the other side. ``rotate`` keeps ``fat_side`` consistent with the
+reduced angle (a half turn flips its sign).
 """
 
 from __future__ import annotations
@@ -163,14 +164,16 @@ def rotate(piece: Piece, angle_deg: float) -> Piece:
     sprite = np.dstack([np.clip(bgr, 0, 255), a2 * 255]).round().astype(np.uint8)
     fat = cv2.warpAffine(piece.fat_mask.astype(np.float32), m, (nw, nh), flags=cv2.INTER_LINEAR)
     mask = sprite[..., 3] >= ALPHA_THRESHOLD
+    total = piece.angle_deg + angle_deg
+    flips = int(np.floor(total / 180.0))  # each half turn swaps which side the normal points to
     return Piece(
         sprite=sprite,
         mask=mask,
         fat_mask=mask & (fat >= 0.5),
         cx_px=ncx,
         cy_px=ncy,
-        angle_deg=float((piece.angle_deg + angle_deg) % 180.0),
-        fat_side=piece.fat_side,
+        angle_deg=float(total % 180.0),
+        fat_side=piece.fat_side * (-1) ** flips,
         length_mm=piece.length_mm,
         width_mm=piece.width_mm,
         thickness_mm=piece.thickness_mm,

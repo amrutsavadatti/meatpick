@@ -47,7 +47,7 @@ def test_rotated_axis_and_fat_side_match_ground_truth(setup):
     rng = make_rng(3)
     for _ in range(30):
         base = generate_piece(cfg, bank, rng, PPM)
-        ang = float(rng.uniform(0, 180))
+        ang = float(rng.uniform(-180, 360))  # includes half turns
         p = rotate(base, ang)
         diff = abs((_axis_deg(p.mask) - p.angle_deg + 90) % 180 - 90)
         assert diff < 4.0
