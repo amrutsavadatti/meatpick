@@ -87,6 +87,14 @@ def robot_to_belt(p: ArmParams, x_mm: float, y_mm: float) -> tuple[float, float]
 
 
 @dataclass
+class SecondPick:
+    """A second piece gripped on the same trip: a short move to it, then another grip."""
+
+    track_id: int
+    extra_s: float  # move_time(gap between the pieces) + grip_s
+
+
+@dataclass
 class ArmEvent:
     t_s: float
     kind: str  # "grip" (fingers close on the piece) | "release" | "idle"
@@ -119,13 +127,13 @@ class Arm:
             self.rest_mm = self.p.bin_mm  # starts parked over the bin
         self.history.append((0.0, ArmState.IDLE))
 
-    def begin(self, plan, belt_speed_mm_s: float) -> None:
-        """Schedule a pick-and-place cycle from a feasible InterceptPlan."""
+    def begin(self, plan, belt_speed_mm_s: float, second: SecondPick | None = None) -> None:
+        """Schedule a pick-and-place cycle from a feasible InterceptPlan (optionally two pieces)."""
         if self.state != ArmState.IDLE or plan.depart_t_s < self.free_at_s - 1e-9:
             raise RuntimeError(f"arm busy until {self.free_at_s:.3f} s (state {self.state.name})")
         p = self.p
         t_grip = plan.grip_at_t_s
-        t_grip_done = t_grip + p.grip_s
+        t_grip_done = t_grip + p.grip_s + (second.extra_s if second else 0.0)
         # the arm rides the belt while gripping, so it leaves for the bin from further downstream
         leave_xy = (plan.pick_x_mm + belt_speed_mm_s * p.grip_s, plan.pick_y_mm)
         d_bin = float(np.hypot(p.bin_mm[0] - leave_xy[0], p.bin_mm[1] - leave_xy[1]))
@@ -138,11 +146,13 @@ class Arm:
             _Phase(ArmState.MOVING_TO_BIN, t_grip_done, t_rel),
             _Phase(ArmState.RELEASING, t_rel, t_end),
         ]
-        self._events = [
-            ArmEvent(t_grip, "grip", plan.track_id),
-            ArmEvent(t_rel, "release", plan.track_id),
-            ArmEvent(t_end, "idle", plan.track_id),
-        ]
+        self._events = [ArmEvent(t_grip, "grip", plan.track_id)]
+        if second:  # the second grip completes the trip's gripping phase
+            self._events.append(ArmEvent(t_grip_done - p.grip_s + 1e-9, "grip", second.track_id))
+        self._events += [ArmEvent(t_rel, "release", plan.track_id)]
+        if second:
+            self._events.append(ArmEvent(t_rel, "release", second.track_id))
+        self._events.append(ArmEvent(t_end, "idle", plan.track_id))
         self.track_id, self.free_at_s = plan.track_id, t_end
         self.rest_mm, self.yaw_deg = p.bin_mm, plan.gripper_yaw_deg
         self.state = ArmState.MOVING_TO_PICK
