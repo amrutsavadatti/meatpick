@@ -125,8 +125,17 @@ control:
   intercept_max_iter: 3         # PRD: converge in at most 3 iterations
   intercept_tol_s: 0.001        # PRD: 1 ms
   adaptive_belt: true
-  pi_kp: 0.5
-  pi_ki: 0.1
+  slack_setpoint_s: 1.6         # slack to hold (tuned on dev seeds): lots of margin, since a stop or slow-down
+                                # takes time and the belt can only change speed at 0.5 m/s^2
+  slack_clip_s: 3.0             # slack beyond this is treated as "plenty"
+  belt_speed_max_mps: 0.25      # controller never runs the belt faster than this (<= belt max)
+  pi_kp: 1.5                    # m/s of belt speed per second of slack error
+  pi_ki: 0.1                    # m/s per second of accumulated slack error
+  pi_integral_max: 1.0          # anti-windup clamp on the accumulated error (s^2)
+  stop_slack_s: 0.0             # stop the belt when the next piece's slack falls below this ...
+  stop_horizon_s: 1.0           # ... and its deadline is closer than this
+  last_resort_blocked: false    # try a finger-blocked piece anyway when it is about to be lost
+  last_resort_mm: 200           # ... once it is this close to the end of the zone (flagged collision_risk)
 
 textures:
   dataset_dir: data/raw/meat_detaction

@@ -250,3 +250,25 @@ def test_closed_loop_with_perfect_tracks_never_double_issues_or_sends_invalid_co
         picked >= 0.6 * world.n_spawned * (90.0 - 10.0) / 90.0
     )  # sanity floor, not the #17 result
     assert arm.state in set(ArmState)
+
+
+# --- last-resort picks (experimental, off by default) -----------------------------------
+def test_last_resort_picks_a_blocked_piece_only_near_the_end_of_the_zone_and_flags_it():
+    on = load_config(overrides=["control.last_resort_blocked=true"])
+    blocked = trk(1, 820.0, 300.0, touching=True)  # inside the last 200 mm, still reachable
+    neighbour = trk(2, 820.0, 385.0, touching=True)
+    far = trk(3, 640.0, 300.0, touching=True)
+    far_n = trk(4, 640.0, 385.0, touching=True)
+    s = Scheduler(on)
+    d, _ = run_step(s, [far, far_n])
+    assert d is None  # blocked and nowhere near the end of the zone: still skipped
+    s = Scheduler(on)
+    d, _ = run_step(s, [blocked, neighbour])
+    assert d is not None and d.record["collision_risk"] is True
+    assert validate_command_record(d.record, on) == []
+
+
+def test_blocked_pieces_are_never_tried_unless_last_resort_is_enabled(cfg):
+    s = Scheduler(cfg)
+    d, _ = run_step(s, [trk(1, 940.0, 300.0, touching=True), trk(2, 940.0, 385.0, touching=True)])
+    assert d is None

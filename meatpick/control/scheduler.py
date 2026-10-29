@@ -28,7 +28,9 @@ SCHEMA_VERSION = 1
 
 
 # --- the command interface --------------------------------------------------------------
-def command_record(cmd: PickCommand, issued_at_s: float, also_pick: list[int]) -> dict:
+def command_record(
+    cmd: PickCommand, issued_at_s: float, also_pick: list[int], collision_risk: bool = False
+) -> dict:
     return {
         "schema": SCHEMA_VERSION,
         "issued_at_s": round(issued_at_s, 6),
@@ -40,6 +42,7 @@ def command_record(cmd: PickCommand, issued_at_s: float, also_pick: list[int]) -
         "grip_at_t_s": round(cmd.grip_at_t_s, 6),
         "place": cmd.place,
         "also_pick": also_pick,
+        "collision_risk": collision_risk,
     }
 
 
@@ -49,7 +52,13 @@ def validate_command_record(rec: dict, cfg: dict) -> list[str]:
 
     def need(key, kinds, ok=lambda v: True, why=""):
         v = rec.get(key)
-        if key not in rec or isinstance(v, bool) or not isinstance(v, kinds) or not ok(v):
+        is_bool_ok = kinds is bool and isinstance(v, bool)
+        if (
+            key not in rec
+            or (isinstance(v, bool) and not is_bool_ok)
+            or not isinstance(v, kinds)
+            or not ok(v)
+        ):
             errs.append(f"{key}={v!r} {why}".strip())
 
     num = (int, float)
@@ -68,6 +77,7 @@ def validate_command_record(rec: dict, cfg: dict) -> list[str]:
     )
     need("place", str, lambda v: v == "BIN", "must be BIN")
     need("also_pick", list, lambda v: all(isinstance(i, int) and i >= 0 for i in v), "ids")
+    need("collision_risk", bool, why="must be true or false")
     if not errs:
         r = float(np.hypot(rec["pick_x_mm"], rec["pick_y_mm"]))  # robot frame: origin at the base
         if r > cfg["robot"]["reach_radius_mm"] + 1e-6:
@@ -85,8 +95,14 @@ class CommandLog:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text("")
 
-    def write(self, cmd: PickCommand, issued_at_s: float, also_pick: list[int]) -> dict:
-        rec = command_record(cmd, issued_at_s, also_pick)
+    def write(
+        self,
+        cmd: PickCommand,
+        issued_at_s: float,
+        also_pick: list[int],
+        collision_risk: bool = False,
+    ) -> dict:
+        rec = command_record(cmd, issued_at_s, also_pick, collision_risk)
         problems = validate_command_record(rec, self.cfg)
         if problems:  # never emit a command the robot interface would reject
             raise ValueError(f"invalid command for track {cmd.track_id}: {problems}")
@@ -154,6 +170,18 @@ class Scheduler:
         self.p = ArmParams.from_cfg(self.cfg)
         self.log = self.log or CommandLog(None, self.cfg)
 
+    def unpickable(self, tracks: list[Track]) -> set[int]:
+        """Tracks the scheduler would pass over right now however long the belt waits: fingers
+        blocked by a neighbour, or too unsure. The belt controller must not slow the belt for
+        them (a piece nobody will pick would hold the belt forever)."""
+        floor = self.cfg["control"]["min_confidence"]
+        if self.cfg["control"]["last_resort_blocked"]:  # blocked pieces will be tried near the end
+            return {t.id for t in tracks if t.confidence < floor}
+        return {
+            t.id for t in tracks
+            if t.confidence < floor or (t.touching and fingers_collide(t, tracks, self.cfg))
+        }  # fmt: skip
+
     def _skip(self, track_id: int, reason: str) -> None:
         self.skip_reasons.setdefault(track_id, reason)
 
@@ -193,6 +221,29 @@ class Scheduler:
                 t, plan, cands, tracks, now_s, encoder_now, belt_speed_mm_s, travel_fn
             )
             return self._dispatch(arm, plan, second, now_s, belt_speed_mm_s)
+        return self._last_resort(cands, now_s, encoder_now, arm, belt_speed_mm_s, travel_fn)
+
+    def _last_resort(self, cands, now_s, encoder_now, arm, v, travel_fn) -> Dispatch | None:
+        """Optional: a finger-blocked piece that is about to leave the zone is tried anyway rather
+        than lost. The command is flagged collision_risk so the outcome is never mistaken for a
+        clean pick."""
+        c = self.cfg["control"]
+        if not c["last_resort_blocked"]:
+            return None
+        for t in cands:
+            if self.skip_reasons.get(t.id) != "touching_collision":
+                continue
+            x_now = (
+                t.x_mm + (encoder_now - t.ref_encoder) * self.cfg["belt"]["mm_per_encoder_count"]
+            )
+            if self.p.zone_x_mm[1] - x_now > c["last_resort_mm"]:
+                continue  # by distance, not time: a slowed belt must not postpone it forever
+            plan = plan_intercept(
+                t, now_s, encoder_now, arm.free_at_s, arm.rest_mm, arm.yaw_deg,
+                self.p, self.cfg, v, travel_fn,
+            )  # fmt: skip
+            if plan.feasible:
+                return self._dispatch(arm, plan, None, now_s, v, collision_risk=True)
         return None
 
     def _second(self, first, plan, cands, tracks, now_s, encoder_now, v, travel_fn):
@@ -228,12 +279,12 @@ class Scheduler:
                 )  # fmt: skip
         return None
 
-    def _dispatch(self, arm, plan, second, now_s, v) -> Dispatch:
+    def _dispatch(self, arm, plan, second, now_s, v, collision_risk: bool = False) -> Dispatch:
         cmd = plan.to_command(self.p)
         extra = None
         if second:
             extra = SecondPick(second.track_id, second.move_s + self.p.grip_s)
-        rec = self.log.write(cmd, now_s, [second.track_id] if second else [])
+        rec = self.log.write(cmd, now_s, [second.track_id] if second else [], collision_risk)
         arm.begin(plan, v, extra)
         self.issued.add(plan.track_id)
         if second:

@@ -51,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("detections-debug", help="contact sheet of detections on a truth set")
     dd.add_argument("--set", default="outputs/dev_set", dest="truth_set")
     dd.add_argument("--out", default="outputs/debug/classical_detections.jpg")
+    tl = sub.add_parser("truth-loop", help="fixed vs adaptive belt with perfect tracks (fast)")
+    tl.add_argument("--minutes", type=float, default=5.0)
+    tl.add_argument("--seeds", type=int, nargs="+", default=[200, 201, 202])
+    tl.add_argument("--out", default=None)
     td = sub.add_parser("tracks-debug", help="clip of track IDs over one saved sequence")
     td.add_argument("--set", default="outputs/test_set", dest="truth_set")
     td.add_argument("--sequence", type=int, default=0)
@@ -192,6 +196,35 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(args.out, np.vstack(rows))
         print(f"wrote {args.out} ({len(good)} clean frames, {len(bad)} with errors sampled)")
+        return 0
+    if args.command == "truth-loop":
+        from meatpick.eval.truth_loop import run_truth_loop
+
+        result = {}
+        for label, adaptive in (("fixed", False), ("adaptive", True)):
+            runs = [run_truth_loop(cfg, args.minutes, s, adaptive) for s in args.seeds]
+            done = sum(r["picked"] + r["missed"] for r in runs)
+            result[label] = {
+                "seeds": args.seeds,
+                "miss_rate": round(sum(r["missed"] for r in runs) / done, 4),
+                "timing_misses": sum(r["missed_other"] for r in runs),
+                "finger_blocked_misses": sum(r["missed_after_finger_block"] for r in runs),
+                "picks_per_min": round(float(np.mean([r["picks_per_min"] for r in runs])), 2),
+                "mean_belt_mps": round(float(np.mean([r["mean_belt_mps"] for r in runs])), 3),
+                "belt_stopped_fraction": round(
+                    float(np.mean([r["belt_stopped_fraction"] for r in runs])), 4
+                ),
+                "runs": runs,
+            }
+        print(
+            json.dumps(
+                {k: {x: y for x, y in v.items() if x != "runs"} for k, v in result.items()},
+                indent=2,
+            )
+        )
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(result, indent=2, default=float))
         return 0
     if args.command == "tracks-debug":
         import cv2
