@@ -301,6 +301,20 @@ def test_a_piece_entering_at_the_top_is_tracked_from_its_partial_views(cfg):
     assert t.tracks[0].x_mm == pytest.approx(-50.0 + 20 * 7, abs=3.0)  # clean views fixed the pose
 
 
+def test_a_side_clipped_piece_is_not_dragged_back_as_it_slides_out_of_the_bottom(cfg):
+    """A piece near the belt edge is cut at the side for its whole transit, so it never gets a
+    clean view; its visible centroid lags the true centre once the bottom edge starts cutting it."""
+    t = Tracker(cfg)
+    for k in range(25):
+        d = _box_detection(cfg, -20.0 + 20 * k)
+        if d is not None:
+            d.mask[300:340, 0] = True  # side clipped on every frame
+        t.update(frame(k), [d] if d else [])
+    x_true = -20.0 + 20 * 24
+    tr = t.tracks[0]
+    assert tr.x_mm + (frame(24).encoder - tr.ref_encoder) * 0.1 == pytest.approx(x_true, abs=8.0)
+
+
 def test_nothing_is_spawned_from_a_detection_cut_by_the_exit_edge(cfg):
     t = Tracker(cfg)
     d = _box_detection(cfg, 330.0)  # half out of the bottom edge, never seen before

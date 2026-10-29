@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("detections-debug", help="contact sheet of detections on a truth set")
     dd.add_argument("--set", default="outputs/dev_set", dest="truth_set")
     dd.add_argument("--out", default="outputs/debug/classical_detections.jpg")
+    rn = sub.add_parser("run", help="closed loop: camera, detector, tracker, scheduler, arm")
+    rn.add_argument("--minutes", type=float, default=5.0)
+    rn.add_argument("--rate", type=float, help="arrivals per minute (default: from config)")
+    rn.add_argument("--adaptive", choices=["on", "off"], help="adaptive belt (default: config)")
+    rn.add_argument("--detector", choices=["yolo", "classical"])
+    rn.add_argument("--out", default="outputs/runs/latest")
     tl = sub.add_parser("truth-loop", help="fixed vs adaptive belt with perfect tracks (fast)")
     tl.add_argument("--minutes", type=float, default=5.0)
     tl.add_argument("--seeds", type=int, nargs="+", default=[200, 201, 202])
@@ -196,6 +202,16 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(args.out, np.vstack(rows))
         print(f"wrote {args.out} ({len(good)} clean frames, {len(bad)} with errors sampled)")
+        return 0
+    if args.command == "run":
+        from meatpick.runner import run_closed_loop
+
+        if args.rate:
+            cfg["arrivals"]["rate_per_min"] = args.rate
+        if args.adaptive:
+            cfg["control"]["adaptive_belt"] = args.adaptive == "on"
+        result = run_closed_loop(cfg, args.minutes, args.out, args.detector, progress=True)
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "truth-loop":
         from meatpick.eval.truth_loop import run_truth_loop

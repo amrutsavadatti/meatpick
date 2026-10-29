@@ -136,6 +136,7 @@ control:
   stop_horizon_s: 1.0           # ... and its deadline is closer than this
   last_resort_blocked: false    # try a finger-blocked piece anyway when it is about to be lost
   last_resort_mm: 200           # ... once it is this close to the end of the zone (flagged collision_risk)
+  grip_tolerance_mm: 25         # closed loop: the gripper takes a real piece only if the track is this close
 
 textures:
   dataset_dir: data/raw/meat_detaction

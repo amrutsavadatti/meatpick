@@ -185,9 +185,12 @@ class Tracker:
         tr.confidence = 0.5 * tr.confidence + 0.5 * det.confidence
         if not partial:
             self._blend_pose(s, det)
-        elif s.full_hits == 0:
+        elif s.full_hits == 0 and not touches_bottom(det.mask):
             # Still entering: the visible part's centroid creeps at half the belt speed, so dead
             # reckoning it would drift away. Follow the measurement until a clean view arrives.
+            # Once the piece is sliding out of the bottom edge the same creep runs the other way
+            # (the centroid lags the true centre), so dead-reckon from the last position instead:
+            # a piece clipped at a side edge all the way down never gets a clean view.
             tr.x_mm, tr.y_mm = det.x_mm, det.y_mm
         if tr.status == "tentative" and tr.hits >= self.confirm_hits:
             tr.status = "confirmed"
