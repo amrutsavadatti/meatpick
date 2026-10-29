@@ -96,3 +96,15 @@ def test_still_accurate_with_heavy_noise_and_vignetting():
     x, y = cal.px_to_belt_mm(c[:, 0], c[:, 1])
     truth = flat_board_corners_belt_mm(held[0][1])
     assert cal.rms_px < 1.0 and np.hypot(x - truth[:, 0], y - truth[:, 1]).max() < 1.0
+
+
+def test_view_span_matches_where_the_tilted_camera_really_looks(session):
+    cam, cal, *_ = session
+    x_top, x_bottom = cal.view_span_x_mm()
+    u, _ = cal.belt_mm_to_px(x_top, 300.0)
+    _, v_top = cam.belt_to_px(np.array([x_top]), np.array([cal.px_to_belt_mm(640.0, 0.0)[1]]))[0]
+    _, v_bottom = cam.belt_to_px(
+        np.array([x_bottom]), np.array([cal.px_to_belt_mm(640.0, 719.0)[1]])
+    )[0]
+    assert abs(v_top - 0.0) < 1.0 and abs(v_bottom - 719.0) < 1.0
+    assert x_bottom - x_top > 300  # a real span, in belt mm

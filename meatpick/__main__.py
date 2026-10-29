@@ -51,6 +51,17 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("detections-debug", help="contact sheet of detections on a truth set")
     dd.add_argument("--set", default="outputs/dev_set", dest="truth_set")
     dd.add_argument("--out", default="outputs/debug/classical_detections.jpg")
+    td = sub.add_parser("tracks-debug", help="clip of track IDs over one saved sequence")
+    td.add_argument("--set", default="outputs/test_set", dest="truth_set")
+    td.add_argument("--sequence", type=int, default=0)
+    td.add_argument("--detector", default="yolo", choices=["classical", "yolo"])
+    td.add_argument("--out", default="outputs/debug/tracks.mp4")
+    et = sub.add_parser("eval-tracking", help="ID switches and duplicate tracks")
+    et.add_argument("--set", default=None, dest="truth_set", help="saved sequences to replay")
+    et.add_argument("--long", type=int, default=0, metavar="N", help="long in-memory run, N pieces")
+    et.add_argument("--detector", default="yolo", choices=["classical", "yolo"])
+    et.add_argument("--nominal", action="store_true", help="long run at the PRD's 50/min line")
+    et.add_argument("--out", default=None)
     pd = sub.add_parser("poses-debug", help="contact sheet of posed detections")
     pd.add_argument("--set", default="outputs/demo_set", dest="truth_set")
     pd.add_argument("--detector", default="yolo", choices=["classical", "yolo"])
@@ -181,6 +192,78 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(args.out, np.vstack(rows))
         print(f"wrote {args.out} ({len(good)} clean frames, {len(bad)} with errors sampled)")
+        return 0
+    if args.command == "tracks-debug":
+        import cv2
+
+        from meatpick.eval.matching import load_truth_frame
+        from meatpick.perception.calibration import Calibration
+        from meatpick.perception.factory import Perceiver
+        from meatpick.perception.tracker import Tracker
+        from meatpick.sim.calibration_target import render_calibration_set
+        from meatpick.sim.camera import Camera
+        from meatpick.sim.dataset_export import test_cfg
+        from meatpick.types import Frame
+        from meatpick.viz.overlay import draw_tracks
+
+        ncfg = test_cfg(cfg)
+        cam = Camera(ncfg, rng)
+        tilted, flat, _ = render_calibration_set(cam, ncfg, rng)
+        cal = Calibration.calibrate(tilted, flat)
+        perceiver, tracker = Perceiver(cfg, cal, prefer=args.detector), Tracker(cfg, cal)
+        index = json.loads((Path(args.truth_set) / "index.json").read_text())
+        stems = [r["frame"] for r in index if r["sequence"] == args.sequence]
+        size = (cfg["camera"]["width_px"], cfg["camera"]["height_px"])
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        writer = cv2.VideoWriter(args.out, cv2.VideoWriter_fourcc(*"mp4v"), 12.5, size)
+        stills = []
+        for k, stem in enumerate(stems):
+            tf = load_truth_frame(args.truth_set, stem)
+            fr = Frame(tf.image, tf.record["encoder"], tf.record["t_s"])
+            dets = perceiver.perceive(fr)
+            tracks = tracker.update(fr, dets)
+            img = draw_tracks(tf.image, tracks, cal, dets)
+            writer.write(img)
+            if k in (6, 12, 18, 24, 30, 36):
+                stills.append(cv2.resize(img, (640, 360)))
+        writer.release()
+        if len(stills) >= 6:
+            sheet = np.vstack([np.hstack(stills[i : i + 2]) for i in range(0, 6, 2)])
+            cv2.imwrite(str(Path(args.out).with_suffix(".jpg")), sheet)
+        print(f"wrote {args.out} ({len(stems)} frames) using {perceiver.description}")
+        return 0
+    if args.command == "eval-tracking":
+        from meatpick.eval.tracking_eval import evaluate_tracking_long, evaluate_tracking_saved
+        from meatpick.perception.calibration import Calibration
+        from meatpick.perception.factory import Perceiver
+        from meatpick.sim.calibration_target import render_calibration_set
+        from meatpick.sim.camera import Camera
+        from meatpick.sim.dataset_export import test_cfg
+        from meatpick.sim.textures import TextureBank
+        from meatpick.sim.world import World
+
+        ncfg = test_cfg(cfg)
+        if args.nominal:
+            ncfg["arrivals"].update(rate_per_min=50, burst_prob=0.1)
+        cam = Camera(ncfg, rng)
+        tilted, flat, _ = render_calibration_set(cam, ncfg, rng)
+        cal = Calibration.calibrate(tilted, flat)
+        perceiver = Perceiver(cfg, cal, prefer=args.detector)
+        result = {"detector": perceiver.description}
+        if args.truth_set:
+            result["saved_set"] = args.truth_set
+            result.update(evaluate_tracking_saved(perceiver, args.truth_set, cfg))
+        if args.long:
+            lrng = make_rng(cfg["seed"] + 777)
+            world = World(ncfg, TextureBank(ncfg, lrng), lrng)
+            result["long_run"] = evaluate_tracking_long(
+                cfg, cal, perceiver, Camera(ncfg, lrng), world, args.long
+            )
+            result["long_run"]["arrivals"] = dict(ncfg["arrivals"])
+        print(json.dumps(result, indent=2, default=float))
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(result, indent=2, default=float))
         return 0
     if args.command == "poses-debug":
         import cv2

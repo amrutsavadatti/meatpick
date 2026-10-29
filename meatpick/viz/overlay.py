@@ -97,3 +97,39 @@ def draw_poses(image: np.ndarray, dets, cal, cfg: dict) -> np.ndarray:
             cv2.LINE_AA,
         )
     return out
+
+
+STATUS_COLOR = {"tentative": (0, 220, 255), "confirmed": (80, 220, 80), "assigned": (255, 160, 60)}
+
+
+def draw_tracks(image: np.ndarray, tracks, cal, dets=None) -> np.ndarray:
+    """Track IDs at their belt-frame positions (mapped back through the calibration)."""
+    out = image.copy()
+    for d in dets or []:
+        cnts, _ = cv2.findContours(
+            d.mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        cv2.drawContours(out, cnts, -1, (200, 200, 200), 1, cv2.LINE_AA)
+    for t in tracks:
+        u, v = cal.belt_mm_to_px(t.x_mm, t.y_mm)
+        if not (-40 <= u <= image.shape[1] + 40 and -40 <= v <= image.shape[0] + 40):
+            continue  # coasting beyond the camera view
+        color = STATUS_COLOR.get(t.status, (255, 255, 255))
+        c = (int(round(u)), int(round(v)))
+        cv2.circle(out, c, 9, color, -1, cv2.LINE_AA)
+        cv2.circle(out, c, 11, (0, 0, 0), 2, cv2.LINE_AA)
+        label = f"#{t.id} {t.status[:4]}"
+        cv2.putText(
+            out,
+            label,
+            (c[0] + 14, c[1] - 6),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 0),
+            4,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            out, label, (c[0] + 14, c[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA
+        )
+    return out

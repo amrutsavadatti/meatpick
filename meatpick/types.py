@@ -39,6 +39,13 @@ class Track:
     confidence: float
     deadline_s: float  # when it leaves the reach zone
     status: str  # tentative | confirmed | assigned | picked | missed
+    # Extras beyond the PRD's fields, all defaulted, that the scheduler (#12) needs:
+    touching: bool = False  # another piece within gripper clearance
+    length_mm: float = 0.0
+    width_mm: float = 0.0
+    est_weight_g: float = 0.0
+    hits: int = 0  # detections matched to this track
+    last_obs_encoder: int = 0  # encoder count of the last matched detection
 
 
 @dataclass

@@ -103,6 +103,14 @@ perception:
     solidity_one: 0.95            # ... and 1 at this one
   track_gate_mm: 30
   track_confirm_hits: 2
+  tracker:
+    border_gate_extra_mm: 20      # a piece cut by the frame edge has a biased centre, so allow more
+    center_alpha: 0.5             # exponential smoothing of the measured centre
+    angle_window: 5               # median over this many full-view angle measurements
+    fov_margin_mm: 40             # tracks this far inside the view edge count as "in the interior"
+    interior_miss_limit: 3        # a confirmed track unseen this long in the interior is dropped
+    spawn_suppress_mm: 30         # no new track for a detection this close to an existing one
+    speed_ema: 0.3                # smoothing of the belt-speed estimate behind the deadline
 
 control:
   adaptive_belt: true

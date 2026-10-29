@@ -21,3 +21,16 @@ class MaskInstance:
 
 class Detector(Protocol):
     def detect(self, frame: Frame) -> list[MaskInstance]: ...
+
+
+BORDER_TOL_PX = 8  # YOLO masks stop a few pixels short of the frame edge, so "touching" is fuzzy
+
+
+def touches_border(mask: np.ndarray, tol_px: int = BORDER_TOL_PX) -> bool:
+    """True if the mask comes within ``tol_px`` of any frame edge (the piece is cut off)."""
+    t = tol_px
+    return bool(mask[:t].any() or mask[-t:].any() or mask[:, :t].any() or mask[:, -t:].any())
+
+
+def touches_bottom(mask: np.ndarray, tol_px: int = BORDER_TOL_PX) -> bool:
+    return bool(mask[-tol_px:].any())

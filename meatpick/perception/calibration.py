@@ -160,6 +160,14 @@ class Calibration:
         u2, v2 = self.belt_mm_to_px(x, y + 1.0)
         return float(np.sqrt(np.hypot(u1 - u, v1 - v) * np.hypot(u2 - u, v2 - v)))
 
+    def view_span_x_mm(self) -> tuple[float, float]:
+        """Belt x (along travel) at the top and bottom rows of the image, centre column. The
+        camera is tilted, so this is not simply [0, height / scale]."""
+        u = self.image_size[0] / 2
+        x_top, _ = self.px_to_belt_mm(u, 0.0)
+        x_bottom, _ = self.px_to_belt_mm(u, float(self.image_size[1] - 1))
+        return x_top, x_bottom
+
     # --- persistence ----------------------------------------------------------------------
     def to_json(self) -> dict:
         return {

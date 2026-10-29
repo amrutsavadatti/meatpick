@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from meatpick.perception.detector import MaskInstance
+from meatpick.perception.detector import MaskInstance, touches_border
 from meatpick.types import Frame
 
 
@@ -29,6 +29,5 @@ class YoloDetector:
         conf = r.boxes.conf.cpu().numpy()
         out = []
         for m, c in zip(masks, conf, strict=True):
-            border = bool(m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any())
-            out.append(MaskInstance(m, float(c), border))
+            out.append(MaskInstance(m, float(c), touches_border(m)))
         return out
