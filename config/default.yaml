@@ -72,6 +72,10 @@ robot:
   reach_zone_x_mm: [600, 1000]     # belt-x range the arm can reach
   bin_distance_mm: 400             # bin within this of the pick zone
   gripper_yaw_offset_deg: 90       # fingers close across short axis
+  base_mm: [800.0, 300.0]          # arm base in the belt frame (x along travel, y across)
+  bin_mm: [800.0, -100.0]          # bin beside the belt, 400 mm from the pick line
+  reach_radius_mm: 450             # horizontal reach from the base
+  wrist_symmetric: false           # true: gripper is 180-degree symmetric, so rotate the short way
   touching_clearance_mm: 25
   dual_pick: false
   dual_pick_radius_mm: 80
@@ -113,6 +117,8 @@ perception:
     speed_ema: 0.3                # smoothing of the belt-speed estimate behind the deadline
 
 control:
+  intercept_max_iter: 3         # PRD: converge in at most 3 iterations
+  intercept_tol_s: 0.001        # PRD: 1 ms
   adaptive_belt: true
   pi_kp: 0.5
   pi_ki: 0.1
